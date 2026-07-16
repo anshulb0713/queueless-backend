@@ -35,11 +35,12 @@ Do not use `user_metadata` to authorize roles. The customer session endpoint alw
 
 ## Staff-counter assignment
 
-An admin creates staff accounts and assigns each staff member to at most one counter. After login, a staff member only receives their assigned counter from `GET /api/counters` and can call or manage tokens only at that counter. Admins retain access to every counter.
+An admin creates staff accounts and assigns each staff member to at most one counter. Every counter is also assigned one or more services. After login, a staff member only receives their assigned counter from `GET /api/counters`, sees only that counter's services in the test panel, and can call or manage tokens only at that counter for an assigned service. Admins retain access to every counter.
 
 - `GET /api/admin/staff` — list staff and their current counter assignment
 - `POST /api/admin/staff` — create a staff login; optionally pass `counterId`
 - `PATCH /api/admin/staff/:staffId/counter` — assign or unassign a counter with `{ "counterId": "..." }` or `{ "counterId": null }`
+- `PUT /api/counters/:counterId/services` — replace a counter's service assignments with `{ "serviceIds": ["..."] }`
 
 ## Project structure
 
@@ -72,15 +73,15 @@ Stop polling once a token becomes `completed` or `cancelled`, and clear the inte
 - `POST /api/auth/login`; `GET /api/health`
 - `POST /api/auth/customer/session` (Google-authenticated customer access token; body: `{ "mobile": "9876543210" }`)
 - `GET /api/branches`, `GET /api/branches/:branchId/services`
-- `POST /api/tokens`, `GET /api/tokens/:tokenId`, `GET /api/tokens/:tokenId/status`, `PATCH /api/tokens/:tokenId/cancel` (all require the owning customer’s Supabase Google token)
+- `POST /api/tokens`, `GET /api/tokens/:tokenId`, `GET /api/tokens/:tokenId/status`, `PATCH /api/tokens/:tokenId/cancel`, `PUT /api/customers/notification-token` (all require the owning customer’s Supabase Google token)
 - `GET /api/queues/:branchId`, `POST /api/queues/:branchId/call-next`
 - `PATCH /api/tokens/:tokenId/{call,start,complete,skip,restore}`, `PATCH /api/staff/tokens/:tokenId/cancel`
 - `GET /api/dashboard/{summary,analytics,current-serving}`, `GET /api/counters`, `POST /api/counters`, `PUT /api/counters/:counterId`, `GET /api/public-display/:branchId`
 
 All staff actions require `Authorization: Bearer <token>`. Cancelling a token intentionally remains available to the customer app in the MVP; production should bind that endpoint to a signed customer-token claim.
 
-When a customer creates a token, `POST /api/tokens` also requires the current Android FCM registration token: `{ "branchId": "...", "serviceId": "...", "fcmToken": "..." }`. The server stores the latest token for that customer.
+When a customer creates a token, `POST /api/tokens` accepts the current Android FCM registration token: `{ "branchId": "...", "serviceId": "...", "fcmToken": "..." }`. `fcmToken` may be `null` or omitted, so opting out of notifications never blocks queue joining. When Firebase rotates a device token, the Android app sends `PUT /api/customers/notification-token` with `{ "fcmToken": "..." }` (or `null` to clear it).
 
 ## Queue notifications
 
-The backend sends at most one notification of each type for each queue token. The customer receives notifications when the token is created, exactly three people are ahead, it is called, service starts, it is skipped or restored, and it is completed or cancelled. Routine position and wait-time changes remain available through polling to avoid notification spam.
+The backend sends at most one notification of each type for each queue token. The customer receives notifications when the token is created, exactly three people are ahead, it is called (including the counter name), service starts, it is skipped or restored, and it is completed or cancelled. Routine position and wait-time changes remain available through polling to avoid notification spam. Queue API responses do not wait for Firebase delivery; failed notifications are retried in-process with backoff, and invalid FCM registration tokens are cleared.
