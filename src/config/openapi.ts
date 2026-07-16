@@ -90,3 +90,41 @@ export const openapiDocument = {
     '/public-display/{branchId}': { get: operation('Get public now-serving and next-three queue data', ['Public display'], { parameters: [branchId] }) }
   }
 } as const;
+
+const clientOperations = new Set([
+  'get /health',
+  'post /auth/customer/session',
+  'get /branches',
+  'get /branches/{branchId}',
+  'get /branches/{branchId}/services',
+  'post /tokens',
+  'get /tokens/{tokenId}',
+  'get /tokens/{tokenId}/status',
+  'put /customers/notification-token',
+  'patch /tokens/{tokenId}/cancel',
+  'get /public-display/{branchId}'
+]);
+
+const createAudienceDocument = (title: string, description: string, allowedOperations: Set<string>) => {
+  const paths = Object.fromEntries(Object.entries(openapiDocument.paths).flatMap(([path, pathItem]) => {
+    const operations = Object.fromEntries(Object.entries(pathItem).filter(([method]) => allowedOperations.has(`${method} ${path}`)));
+    return Object.keys(operations).length ? [[path, operations]] : [];
+  }));
+  return {
+    ...openapiDocument,
+    info: { ...openapiDocument.info, title, description },
+    paths
+  };
+};
+
+export const clientOpenapiDocument = createAudienceDocument(
+  'QueueLess Client API',
+  'Customer mobile and public display APIs. Customer endpoints require a Supabase Google OAuth access token.',
+  clientOperations
+);
+
+export const adminStaffOpenapiDocument = createAudienceDocument(
+  'QueueLess Admin & Staff API',
+  'Operations APIs for dashboard administrators and counter staff. Authenticate with the JWT returned by POST /auth/login.',
+  new Set(Object.entries(openapiDocument.paths).flatMap(([path, pathItem]) => Object.keys(pathItem).map(method => `${method} ${path}`)).filter(operation => !clientOperations.has(operation)))
+);
