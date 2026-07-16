@@ -5,6 +5,7 @@ import { ApiError, asyncRoute, ok } from '../middlewares/error.middleware.js';
 import { requireAuth, signToken, verifyPassword } from '../middlewares/auth.middleware.js';
 import { assertTransition, recalculateQueue } from '../services/queue.service.js';
 import { TokenStatus } from '../types/index.js';
+import { supabaseAuth } from '../config/supabase.js';
 
 const id = z.string().uuid();
 const tokenInput = z.object({ customerName: z.string().trim().min(2).max(100), mobile: z.string().regex(/^\d{10,15}$/), branchId: id, serviceId: id });
@@ -23,6 +24,33 @@ router.post('/auth/login', asyncRoute(async (req, res) => {
   if (!user || !(await verifyPassword(password, user.password_hash))) throw new ApiError(401, 'UNAUTHORIZED', 'Invalid email or password');
   const safeUser = { id: user.id, name: user.name, role: user.role };
   ok(res, { token: signToken(safeUser), user: safeUser }, 'Logged in successfully');
+}));
+
+// Customer sign-up and sign-in happen in the Android app through Supabase Google OAuth.
+// This endpoint verifies the Supabase access token and creates/updates the local customer profile.
+router.post('/auth/customer/session', asyncRoute(async (req, res) => {
+  const authorization = req.header('authorization');
+  if (!authorization?.startsWith('Bearer ')) throw new ApiError(401, 'UNAUTHORIZED', 'A Supabase access token is required');
+
+  const { data, error } = await supabaseAuth.auth.getUser(authorization.slice(7));
+  const user = data.user;
+  if (error || !user) throw new ApiError(401, 'UNAUTHORIZED', 'Invalid or expired Supabase access token');
+  if (!user.identities?.some(identity => identity.provider === 'google')) {
+    throw new ApiError(403, 'GOOGLE_SIGN_IN_REQUIRED', 'Customer accounts must use Google Sign-In');
+  }
+  if (!user.email) throw new ApiError(400, 'EMAIL_REQUIRED', 'A Google account email address is required');
+
+  const name = typeof user.user_metadata.full_name === 'string' && user.user_metadata.full_name.trim().length >= 2
+    ? user.user_metadata.full_name.trim().slice(0, 100)
+    : user.email.split('@')[0];
+  const profile = await query<{ id: string; name: string; email: string; role: string }>(
+    `insert into public.users (name, email, auth_user_id, auth_provider, role)
+     values ($1, $2, $3, 'google', 'customer')
+     on conflict (auth_user_id) do update set name = excluded.name, email = excluded.email
+     returning id, name, email, role`,
+    [name, user.email.toLowerCase(), user.id]
+  );
+  ok(res, profile.rows[0], 'Google customer session verified');
 }));
 
 router.get('/branches', asyncRoute(async (_req, res) => {

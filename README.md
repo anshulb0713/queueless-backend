@@ -8,7 +8,8 @@ REST backend for the QueueLess MVP. It implements the TRD's queue lifecycle, inc
 - Express 5 REST API
 - Supabase PostgreSQL, accessed through a server-only `DATABASE_URL` using `pg`
 - REST polling for live queue updates
-- JWT for staff/admin access, bcrypt password verification, Zod validation
+- Supabase Google OAuth for customer sign-in/sign-up; JWT and password login for staff/admin
+- bcrypt password verification and Zod validation
 
 Supabase is the database and migration host, not the public API surface: the browser and Android app call this backend. This preserves the transactional locking needed to prevent duplicate token numbers or two staff members calling the same token. The migration enables RLS and does not grant `anon` or `authenticated` roles table access.
 
@@ -21,6 +22,13 @@ Supabase is the database and migration host, not the public API surface: the bro
 5. Run `npm run dev`.
 
 The demo users are `admin@queueless.com` / `admin123` and `staff@queueless.com` / `staff123`.
+
+## Authentication model
+
+- **Customers:** Google Sign-In only. The Android app authenticates with Supabase Auth using Google OAuth, then sends the Supabase access token to `POST /api/auth/customer/session`. The API verifies it with Supabase Auth and upserts a `customer` profile. No customer password endpoint exists.
+- **Staff and admins:** continue using `POST /api/auth/login` with the preconfigured dashboard email and password. The API issues its existing staff/admin JWT for protected management routes.
+
+Do not use `user_metadata` to authorize roles. The customer session endpoint always writes the `customer` role itself; staff/admin roles remain server-managed.
 
 ## Project structure
 
@@ -51,6 +59,7 @@ Stop polling once a token becomes `completed` or `cancelled`, and clear the inte
 ## Main API routes
 
 - `POST /api/auth/login`; `GET /api/health`
+- `POST /api/auth/customer/session` (Google-authenticated customer access token)
 - `GET /api/branches`, `GET /api/branches/:branchId/services`
 - `POST /api/tokens`, `GET /api/tokens/:tokenId`, `GET /api/tokens/:tokenId/status`, `PATCH /api/tokens/:tokenId/cancel`
 - `GET /api/queues/:branchId`, `POST /api/queues/:branchId/call-next`
