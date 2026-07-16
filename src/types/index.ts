@@ -9,6 +9,7 @@ export interface CustomerRequest extends Request { customer?: CustomerProfile; }
 declare global {
   namespace Express {
     interface Request {
+      user?: AuthUser;
       customer?: CustomerProfile;
     }
   }

@@ -30,6 +30,14 @@ The demo users are `admin@queueless.com` / `admin123` and `staff@queueless.com` 
 
 Do not use `user_metadata` to authorize roles. The customer session endpoint always writes the `customer` role itself; staff/admin roles remain server-managed.
 
+## Staff-counter assignment
+
+An admin creates staff accounts and assigns each staff member to at most one counter. After login, a staff member only receives their assigned counter from `GET /api/counters` and can call or manage tokens only at that counter. Admins retain access to every counter.
+
+- `GET /api/admin/staff` — list staff and their current counter assignment
+- `POST /api/admin/staff` — create a staff login; optionally pass `counterId`
+- `PATCH /api/admin/staff/:staffId/counter` — assign or unassign a counter with `{ "counterId": "..." }` or `{ "counterId": null }`
+
 ## Project structure
 
 ```text

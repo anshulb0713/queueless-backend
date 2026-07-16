@@ -16,6 +16,7 @@ export const requireAuth = (roles: Role[] = ['admin', 'staff']) => (req: AuthReq
   catch (error) { next(error instanceof ApiError ? error : new ApiError(401, 'UNAUTHORIZED', 'Invalid or expired access token')); }
 };
 export const verifyPassword = (value: string, hash: string) => bcrypt.compare(value, hash);
+export const hashPassword = (value: string) => bcrypt.hash(value, 12);
 
 export const requireCustomerAuth = async (req: CustomerRequest, _res: Response, next: NextFunction) => {
   try {
