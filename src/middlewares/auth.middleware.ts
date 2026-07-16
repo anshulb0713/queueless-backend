@@ -28,7 +28,7 @@ export const requireCustomerAuth = async (req: CustomerRequest, _res: Response, 
       throw new ApiError(401, 'UNAUTHORIZED', 'A valid Supabase Google customer session is required');
     }
     const profile = await query<CustomerProfile>(`select id, name, email, mobile, role from public.users where auth_user_id=$1 and role='customer'`, [authUser.id]);
-    if (!profile.rowCount || !profile.rows[0].mobile) throw new ApiError(403, 'CUSTOMER_PROFILE_INCOMPLETE', 'Complete your customer profile before joining a queue');
+    if (!profile.rowCount) throw new ApiError(403, 'CUSTOMER_PROFILE_INCOMPLETE', 'Create your customer profile before joining a queue');
     req.customer = profile.rows[0];
     next();
   } catch (error) { next(error instanceof ApiError ? error : new ApiError(401, 'UNAUTHORIZED', 'Invalid or expired customer access token')); }

@@ -19,7 +19,7 @@ Do not use an admin or staff JWT in the mobile app. The mobile UI only exposes G
 | --- | --- | --- | --- | --- |
 | 1 | App opens or the branch picker is shown | `GET /branches` | None | Branch `id`, name, status, waiting count, and estimated wait time. Show only `open` branches as joinable. |
 | 2 | A customer selects a branch | `GET /branches/{branchId}/services` | None | Service `id`, prefix, status, duration, and waiting count. Show only `active` services as joinable. |
-| 3 | Immediately after Google OAuth succeeds, and before joining a queue | `POST /auth/customer/session` | Google token | Creates or updates the QueueLess customer profile. Send the verified mobile number. This must succeed before creating a token. |
+| 3 | Immediately after Google OAuth succeeds, and before joining a queue | `POST /auth/customer/session` | Google token | Creates or updates the QueueLess customer profile from the verified Google identity. No request body is required. This must succeed before creating a token. |
 | 4 | Customer presses **Join queue** | `POST /tokens` | Google token | Send selected `branchId`, `serviceId`, and the current FCM token when available. Persist returned token `id` locally. |
 | 5 | Token/tracking screen opens or app returns to foreground | `GET /tokens/{tokenId}` | Google token | Full token details including number, queue position, wait estimate, service, and counter. |
 | 6 | While the token screen is visible | `GET /tokens/{tokenId}/status` every 5 seconds | Google token | Lightweight polling endpoint. Update the token status, queue position, estimate, and counter without reloading the entire screen. |
@@ -33,10 +33,34 @@ Do not use an admin or staff JWT in the mobile app. The mobile UI only exposes G
 ```http
 POST /api/auth/customer/session
 Authorization: Bearer <supabase_google_access_token>
-Content-Type: application/json
-
-{ "mobile": "9999999999" }
 ```
+
+## React Native Google sign-up / sign-in
+
+The mobile app must never send a Google ID token directly to QueueLess. First exchange it with Supabase Auth, then send the resulting Supabase access token to QueueLess.
+
+```ts
+// 1. Get an ID token from the native Google Sign-In SDK.
+const { idToken } = await GoogleSignin.signIn();
+if (!idToken) throw new Error('Google did not return an ID token');
+
+// 2. Exchange it for a Supabase session.
+const { data, error } = await supabase.auth.signInWithIdToken({
+  provider: 'google',
+  token: idToken,
+});
+if (error) throw error;
+
+// 3. Register/refresh the QueueLess profile. No mobile number is sent.
+const response = await fetch(`${API_BASE_URL}/auth/customer/session`, {
+  method: 'POST',
+  headers: { Authorization: `Bearer ${data.session.access_token}` },
+});
+const payload = await response.json();
+if (!response.ok) throw new Error(payload.message);
+```
+
+For an Expo OAuth flow that uses a browser redirect instead of a native Google SDK, configure an app URL scheme and the Supabase redirect URL, complete `signInWithOAuth`, then use the returned Supabase session access token in the same QueueLess request above.
 
 ### 2. Join a queue and register FCM in the same call
 
@@ -105,7 +129,7 @@ Important client actions:
 | --- | --- |
 | `UNAUTHORIZED` | Refresh the Supabase session or send the user through Google Sign-In again. |
 | `GOOGLE_SIGN_IN_REQUIRED` | Do not continue; customer authentication must use Google. |
-| `CUSTOMER_PROFILE_INCOMPLETE` | Call `POST /auth/customer/session` with a valid mobile number. |
+| `CUSTOMER_PROFILE_INCOMPLETE` | Call `POST /auth/customer/session` again with a valid Supabase Google session. |
 | `BRANCH_CLOSED` | Disable joining and return to branch selection. |
 | `SERVICE_INACTIVE` | Disable joining and refresh the branch service list. |
 | `TOKEN_NOT_FOUND` | Clear the locally saved token ID; it is not owned by the current customer. |
