@@ -22,6 +22,22 @@ Supabase is the database and migration host, not the public API surface: the bro
 
 The demo users are `admin@queueless.com` / `admin123` and `staff@queueless.com` / `staff123`.
 
+## Project structure
+
+```text
+src/
+├── config/          # environment parsing and application configuration
+├── database/        # PostgreSQL pool and transaction helper
+├── middlewares/     # authentication and central error/response helpers
+├── routes/          # REST API route definitions
+├── services/        # queue state machine and recalculation rules
+├── types/           # shared TypeScript domain types
+└── server.ts         # Express application bootstrap and graceful shutdown
+supabase/
+├── migrations/      # versioned database schema changes
+└── seed.sql          # deterministic demo users, branch, services, counters
+```
+
 ## Live-update polling contract
 
 For hackathon reliability, clients poll instead of holding a Socket.IO connection:

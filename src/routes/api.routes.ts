@@ -1,10 +1,10 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { query, transaction } from './db.js';
-import { ApiError, asyncRoute, ok } from './http.js';
-import { requireAuth, signToken, verifyPassword } from './auth.js';
-import { assertTransition, recalculateQueue } from './queue.js';
-import { TokenStatus } from './types.js';
+import { query, transaction } from '../database/postgres.js';
+import { ApiError, asyncRoute, ok } from '../middlewares/error.middleware.js';
+import { requireAuth, signToken, verifyPassword } from '../middlewares/auth.middleware.js';
+import { assertTransition, recalculateQueue } from '../services/queue.service.js';
+import { TokenStatus } from '../types/index.js';
 
 const id = z.string().uuid();
 const tokenInput = z.object({ customerName: z.string().trim().min(2).max(100), mobile: z.string().regex(/^\d{10,15}$/), branchId: id, serviceId: id });

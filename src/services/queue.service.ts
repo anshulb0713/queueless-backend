@@ -1,6 +1,6 @@
 import { PoolClient } from 'pg';
-import { ApiError } from './http.js';
-import { TokenStatus } from './types.js';
+import { ApiError } from '../middlewares/error.middleware.js';
+import { TokenStatus } from '../types/index.js';
 
 export const transitions: Record<TokenStatus, TokenStatus[]> = {
   waiting: ['called', 'skipped', 'cancelled'], called: ['serving', 'skipped', 'cancelled'], serving: ['completed'],

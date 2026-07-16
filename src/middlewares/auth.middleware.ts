@@ -1,9 +1,9 @@
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { NextFunction, Response } from 'express';
-import { config } from './config.js';
-import { ApiError } from './http.js';
-import { AuthRequest, AuthUser, Role } from './types.js';
+import { config } from '../config/env.js';
+import { ApiError } from './error.middleware.js';
+import { AuthRequest, AuthUser, Role } from '../types/index.js';
 
 export const signToken = (user: AuthUser) => jwt.sign(user, config.jwtSecret, { expiresIn: config.jwtExpiresIn } as jwt.SignOptions);
 export const requireAuth = (roles: Role[] = ['admin', 'staff']) => (req: AuthRequest, _res: Response, next: NextFunction) => {

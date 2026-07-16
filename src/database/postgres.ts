@@ -1,5 +1,5 @@
 import { Pool, PoolClient, QueryResultRow } from 'pg';
-import { config } from './config.js';
+import { config } from '../config/env.js';
 
 export const pool = new Pool({ connectionString: config.databaseUrl, ssl: config.nodeEnv === 'development' ? undefined : { rejectUnauthorized: false } });
 export async function query<T extends QueryResultRow = QueryResultRow>(text: string, params: unknown[] = []) { return pool.query<T>(text, params); }
