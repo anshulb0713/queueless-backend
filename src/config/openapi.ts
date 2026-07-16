@@ -117,11 +117,14 @@ const createAudienceDocument = (title: string, description: string, allowedOpera
   };
 };
 
-export const clientOpenapiDocument = createAudienceDocument(
+export const clientOpenapiDocument = {
+  ...createAudienceDocument(
   'QueueLess Client API',
   'Customer mobile and public display APIs. Customer endpoints require a Supabase Google OAuth access token.',
   clientOperations
-);
+  ),
+  externalDocs: { description: 'Client API call guide', url: '/docs/client-api.md' }
+};
 
 export const adminStaffOpenapiDocument = createAudienceDocument(
   'QueueLess Admin & Staff API',
