@@ -26,6 +26,16 @@ To deliver mobile notifications, create a Firebase service account for the Andro
 
 The demo users are `admin@queueless.com` / `admin123` and `staff@queueless.com` / `staff123`.
 
+## Portal demo data
+
+`supabase/seed_demo.sql` adds re-runnable dashboard data for the staff/admin portal. It deletes and recreates only tokens whose number begins with `DEMO-`, then inserts 10 tokens: five waiting, one called, one serving, one completed, one skipped, and one cancelled. It also marks Counters 1 and 2 busy for the called/serving examples.
+
+Run it after the base seed with:
+
+```bash
+psql "$DATABASE_URL" -f supabase/seed_demo.sql
+```
+
 ## Authentication model
 
 - **Customers:** Google Sign-In only. The Android app authenticates with Supabase Auth using Google OAuth, then sends the Supabase access token and mobile number to `POST /api/auth/customer/session`. The API verifies it with Supabase Auth and upserts a `customer` profile. No customer password endpoint exists.
