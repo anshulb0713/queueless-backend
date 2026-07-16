@@ -25,7 +25,7 @@ The demo users are `admin@queueless.com` / `admin123` and `staff@queueless.com` 
 
 ## Authentication model
 
-- **Customers:** Google Sign-In only. The Android app authenticates with Supabase Auth using Google OAuth, then sends the Supabase access token to `POST /api/auth/customer/session`. The API verifies it with Supabase Auth and upserts a `customer` profile. No customer password endpoint exists.
+- **Customers:** Google Sign-In only. The Android app authenticates with Supabase Auth using Google OAuth, then sends the Supabase access token and mobile number to `POST /api/auth/customer/session`. The API verifies it with Supabase Auth and upserts a `customer` profile. No customer password endpoint exists.
 - **Staff and admins:** continue using `POST /api/auth/login` with the preconfigured dashboard email and password. The API issues its existing staff/admin JWT for protected management routes.
 
 Do not use `user_metadata` to authorize roles. The customer session endpoint always writes the `customer` role itself; staff/admin roles remain server-managed.
@@ -59,11 +59,11 @@ Stop polling once a token becomes `completed` or `cancelled`, and clear the inte
 ## Main API routes
 
 - `POST /api/auth/login`; `GET /api/health`
-- `POST /api/auth/customer/session` (Google-authenticated customer access token)
+- `POST /api/auth/customer/session` (Google-authenticated customer access token; body: `{ "mobile": "9876543210" }`)
 - `GET /api/branches`, `GET /api/branches/:branchId/services`
-- `POST /api/tokens`, `GET /api/tokens/:tokenId`, `GET /api/tokens/:tokenId/status`, `PATCH /api/tokens/:tokenId/cancel`
+- `POST /api/tokens`, `GET /api/tokens/:tokenId`, `GET /api/tokens/:tokenId/status`, `PATCH /api/tokens/:tokenId/cancel` (all require the owning customer’s Supabase Google token)
 - `GET /api/queues/:branchId`, `POST /api/queues/:branchId/call-next`
-- `PATCH /api/tokens/:tokenId/{call,start,complete,skip,restore}`
-- `GET /api/dashboard/{summary,analytics,current-serving}`, `GET /api/counters`, `GET /api/public-display/:branchId`
+- `PATCH /api/tokens/:tokenId/{call,start,complete,skip,restore}`, `PATCH /api/staff/tokens/:tokenId/cancel`
+- `GET /api/dashboard/{summary,analytics,current-serving}`, `GET /api/counters`, `POST /api/counters`, `PUT /api/counters/:counterId`, `GET /api/public-display/:branchId`
 
 All staff actions require `Authorization: Bearer <token>`. Cancelling a token intentionally remains available to the customer app in the MVP; production should bind that endpoint to a signed customer-token claim.
