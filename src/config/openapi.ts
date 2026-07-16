@@ -13,9 +13,10 @@ const success = (description = 'Successful response') => ({
   content: { 'application/json': { schema: { $ref: '#/components/schemas/SuccessResponse' } } }
 });
 const errors = { 400: { $ref: '#/components/responses/BadRequest' }, 401: { $ref: '#/components/responses/Unauthorized' }, 403: { $ref: '#/components/responses/Forbidden' }, 404: { $ref: '#/components/responses/NotFound' }, 409: { $ref: '#/components/responses/Conflict' } };
-const operation = (summary: string, tags: string[], options: { security?: object[]; parameters?: object[]; requestBody?: object; successCode?: number; successDescription?: string } = {}) => ({
+const operation = (summary: string, tags: string[], options: { description?: string; security?: object[]; parameters?: object[]; requestBody?: object; successCode?: number; successDescription?: string } = {}) => ({
   summary,
   tags,
+  ...(options.description ? { description: options.description } : {}),
   ...(options.security ? { security: options.security } : {}),
   ...(options.parameters ? { parameters: options.parameters } : {}),
   ...(options.requestBody ? { requestBody: options.requestBody } : {}),
@@ -33,7 +34,7 @@ export const openapiDocument = {
     securitySchemes: {
       adminBearerAuth: { type: 'http', scheme: 'bearer', bearerFormat: 'JWT', description: 'JWT returned by `POST /auth/login` for an admin account.' },
       staffBearerAuth: { type: 'http', scheme: 'bearer', bearerFormat: 'JWT', description: 'JWT returned by `POST /auth/login` for a staff account. Admin JWTs also work where staff access is allowed.' },
-      customerBearerAuth: { type: 'http', scheme: 'bearer', bearerFormat: 'Supabase access token', description: 'Google OAuth access token from Supabase Auth.' }
+      customerBearerAuth: { type: 'http', scheme: 'bearer', bearerFormat: 'Supabase access token', description: 'Supabase **access token** created after Google Sign-In. This is not the Google Client ID, Google ID token, Supabase publishable key, or any QueueLess staff/admin JWT.' }
     },
     schemas: {
       SuccessResponse: { type: 'object', required: ['success', 'data'], properties: { success: { type: 'boolean', example: true }, message: { type: 'string' }, data: {} } },
@@ -58,7 +59,7 @@ export const openapiDocument = {
   paths: {
     '/health': { get: operation('Check API health', ['System']) },
     '/auth/login': { post: operation('Sign in an admin or staff user', ['Authentication'], { requestBody: body({ $ref: '#/components/schemas/LoginRequest' }) }) },
-    '/auth/customer/session': { post: operation('Verify Google customer session and create/update profile', ['Authentication', 'Customer'], { security: customerAuth }) },
+    '/auth/customer/session': { post: operation('Verify Google customer session and create/update profile', ['Authentication', 'Customer'], { security: customerAuth, description: 'Call immediately after Supabase Google OAuth succeeds, before `POST /tokens`. Send **no request body**—only `Authorization: Bearer <supabase_access_token>`. QueueLess verifies the token with Supabase, requires a Google identity, and creates or refreshes the local customer profile. For browser OAuth: call `supabase.auth.signInWithOAuth({ provider: \'google\', options: { redirectTo: window.location.origin } })`, then call this endpoint using `session.access_token` after the redirect.' }) },
     '/staff/assignment': { get: operation('Get the authenticated staff member’s assigned branch, counter, and services', ['Staff'], { security: staffAuth }) },
     '/admin/staff': { get: operation('List staff accounts and their counter assignments', ['Admin'], { security: adminAuth }), post: operation('Create a staff account', ['Admin'], { security: adminAuth, requestBody: body({ $ref: '#/components/schemas/StaffRequest' }), successCode: 201, successDescription: 'Staff user created' }) },
     '/admin/staff/{staffId}/counter': { patch: operation('Assign or unassign a staff member’s counter and allowed services', ['Admin'], { security: adminAuth, parameters: [staffId], requestBody: body({ type: 'object', required: ['counterId'], properties: { counterId: { type: 'string', format: 'uuid', nullable: true }, serviceIds: { type: 'array', minItems: 1, items: { type: 'string', format: 'uuid' }, description: 'Required when counterId is set.' } } }) }) },
@@ -119,10 +120,10 @@ const createAudienceDocument = (title: string, description: string, allowedOpera
 export const clientOpenapiDocument = {
   ...createAudienceDocument(
   'QueueLess Client API',
-  'Customer mobile and public display APIs. Customer endpoints require a Supabase Google OAuth access token.',
+  'Customer mobile and public display APIs. Customer endpoints require a Supabase access token created after Google OAuth. Start at the external Client API call guide for the complete setup and browser test flow.',
   clientOperations
   ),
-  externalDocs: { description: 'Client API call guide', url: '/docs/client-api.md' }
+  externalDocs: { description: 'Google Sign-In setup and Client API call guide', url: '/docs/client-api.md' }
 };
 
 export const adminStaffOpenapiDocument = createAudienceDocument(

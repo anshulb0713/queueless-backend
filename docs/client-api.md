@@ -13,6 +13,38 @@ Content-Type: application/json
 
 Do not use an admin or staff JWT in the mobile app. The mobile UI only exposes Google Sign-In.
 
+## Google Sign-In setup (web and mobile)
+
+The **Google Client ID** is created in Google Cloud and looks like `1234567890-abc.apps.googleusercontent.com`. It is not a Google username, Supabase project reference, publishable key, or Google ID token.
+
+1. In Google Cloud, create an OAuth client of type **Web application**.
+2. Add the app origin as an authorized JavaScript origin. For the local browser test page, use `http://127.0.0.1:5174`.
+3. Add the exact Supabase callback URL as an authorized redirect URI: `https://<project-ref>.supabase.co/auth/v1/callback`. Supabase Dashboard → Authentication → Providers → Google shows the exact value.
+4. In Supabase Dashboard → Authentication → Providers → Google, enable Google and paste the generated Google **Client ID** and **Client Secret**. If there are multiple platform client IDs, enter them as a comma-separated list with the web client ID first.
+5. In Supabase Dashboard → Authentication → URL Configuration, allow the application redirect URL. For the local browser test page, add `http://127.0.0.1:5174`.
+
+Never put `SUPABASE_SECRET_KEY`, the database URL, or `JWT_SECRET` in a browser/mobile client. Only the Supabase URL and publishable key belong in the client.
+
+### Browser test flow
+
+The standalone React test page is at `/Users/anshulborde/anshul/queueless/google-login-test`. Run it with `npm run dev -- --port 5174`, open `http://127.0.0.1:5174`, then enter the Supabase URL and publishable key. It performs:
+
+```ts
+const { error } = await supabase.auth.signInWithOAuth({
+  provider: 'google',
+  options: { redirectTo: window.location.origin }
+});
+if (error) throw error;
+
+// After the redirect, Supabase restores a session in the browser.
+await fetch('/api/auth/customer/session', {
+  method: 'POST',
+  headers: { Authorization: `Bearer ${session.access_token}` }
+});
+```
+
+The test page proxies `/api` to the local QueueLess backend. It displays the QueueLess customer profile only after this server-side verification succeeds.
+
 ## Customer queue flow
 
 | Step | When to call | API | Authentication | What to use from the response |
