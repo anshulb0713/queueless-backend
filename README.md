@@ -1,13 +1,13 @@
 # QueueLess backend
 
-REST and Socket.IO backend for the QueueLess MVP. It implements the TRD's queue lifecycle, including sequential token generation, queue-position and wait-time recalculation, staff actions, dashboard data, and public-display data.
+REST backend for the QueueLess MVP. It implements the TRD's queue lifecycle, including sequential token generation, queue-position and wait-time recalculation, staff actions, dashboard data, and public-display data.
 
 ## Confirmed technology
 
 - Node.js 22+ and TypeScript
 - Express 5 REST API
 - Supabase PostgreSQL, accessed through a server-only `DATABASE_URL` using `pg`
-- Socket.IO for live queue events
+- REST polling for live queue updates
 - JWT for staff/admin access, bcrypt password verification, Zod validation
 
 Supabase is the database and migration host, not the public API surface: the browser and Android app call this backend. This preserves the transactional locking needed to prevent duplicate token numbers or two staff members calling the same token. The migration enables RLS and does not grant `anon` or `authenticated` roles table access.
@@ -22,9 +22,15 @@ Supabase is the database and migration host, not the public API surface: the bro
 
 The demo users are `admin@queueless.com` / `admin123` and `staff@queueless.com` / `staff123`.
 
-## Real-time client contract
+## Live-update polling contract
 
-On Socket.IO connection, send `branch:join` with the branch UUID. Subscribe to `token-created`, `token-called`, `token-started`, `token-completed`, `token-skipped`, `token-waiting` (restore), `token-cancelled`, and `queue-updated`.
+For hackathon reliability, clients poll instead of holding a Socket.IO connection:
+
+- Customer tracking screen: `GET /api/tokens/:tokenId/status` every 3 seconds while the token is active.
+- Staff queue dashboard: `GET /api/queues/:branchId` and `GET /api/dashboard/summary?branchId=:branchId` every 3–5 seconds.
+- Public display: `GET /api/public-display/:branchId` every 3 seconds.
+
+Stop polling once a token becomes `completed` or `cancelled`, and clear the interval when the screen is unmounted.
 
 ## Main API routes
 

@@ -12,5 +12,5 @@ export const config = {
   databaseUrl: required('DATABASE_URL'),
   jwtSecret: required('JWT_SECRET'),
   jwtExpiresIn: process.env.JWT_EXPIRES_IN ?? '8h',
-  origins: (process.env.SOCKET_ALLOWED_ORIGINS ?? process.env.CLIENT_WEB_URL ?? 'http://localhost:5173').split(',').map(x => x.trim())
+  origins: (process.env.CLIENT_WEB_URL ?? 'http://localhost:5173').split(',').map(x => x.trim())
 };
