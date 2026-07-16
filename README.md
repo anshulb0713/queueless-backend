@@ -9,6 +9,7 @@ REST backend for the QueueLess MVP. It implements the TRD's queue lifecycle, inc
 - Supabase PostgreSQL, accessed through a server-only `DATABASE_URL` using `pg`
 - REST polling for live queue updates
 - Supabase Google OAuth for customer sign-in/sign-up; JWT and password login for staff/admin
+- Firebase Cloud Messaging (FCM), sent server-side through the Firebase Admin SDK
 - bcrypt password verification and Zod validation
 
 Supabase is the database and migration host, not the public API surface: the browser and Android app call this backend. This preserves the transactional locking needed to prevent duplicate token numbers or two staff members calling the same token. The migration enables RLS and does not grant `anon` or `authenticated` roles table access.
@@ -20,6 +21,8 @@ Supabase is the database and migration host, not the public API surface: the bro
 3. Install the Supabase CLI, authenticate, link the project, then apply the schema with `supabase db push`.
 4. Seed the required demo data with `npm run db:seed`.
 5. Run `npm run dev`.
+
+To deliver mobile notifications, create a Firebase service account for the Android app's Firebase project and set `FIREBASE_SERVICE_ACCOUNT_JSON` to its complete JSON key on one line. This is a server-only secret: never add it to the Android app or commit it to Git. Without it, queue operations still work and notification events are recorded as skipped.
 
 The demo users are `admin@queueless.com` / `admin123` and `staff@queueless.com` / `staff123`.
 
@@ -75,3 +78,9 @@ Stop polling once a token becomes `completed` or `cancelled`, and clear the inte
 - `GET /api/dashboard/{summary,analytics,current-serving}`, `GET /api/counters`, `POST /api/counters`, `PUT /api/counters/:counterId`, `GET /api/public-display/:branchId`
 
 All staff actions require `Authorization: Bearer <token>`. Cancelling a token intentionally remains available to the customer app in the MVP; production should bind that endpoint to a signed customer-token claim.
+
+When a customer creates a token, `POST /api/tokens` also requires the current Android FCM registration token: `{ "branchId": "...", "serviceId": "...", "fcmToken": "..." }`. The server stores the latest token for that customer.
+
+## Queue notifications
+
+The backend sends at most one notification of each type for each queue token. The customer receives notifications when the token is created, exactly three people are ahead, it is called, service starts, it is skipped or restored, and it is completed or cancelled. Routine position and wait-time changes remain available through polling to avoid notification spam.
