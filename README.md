@@ -36,6 +36,12 @@ Run it after the base seed with:
 psql "$DATABASE_URL" -f supabase/seed_demo.sql
 ```
 
+`supabase/seed_options.sql` is an additive, re-runnable catalog seed for the admin UI. It creates five extra categories, ten branches, thirty services, thirty counters, and their counter-service assignments without deleting existing data. Run it with:
+
+```bash
+npm run db:seed:options
+```
+
 ## Authentication model
 
 - **Customers:** Google Sign-In only. The Android app authenticates with Supabase Auth using Google OAuth, then sends the Supabase access token and mobile number to `POST /api/auth/customer/session`. The API verifies it with Supabase Auth and upserts a `customer` profile. No customer password endpoint exists.

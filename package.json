@@ -13,7 +13,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "db:push": "supabase db push",
-    "db:seed": "psql \"$DATABASE_URL\" -f supabase/seed.sql"
+    "db:seed": "psql \"$DATABASE_URL\" -f supabase/seed.sql",
+    "db:seed:options": "psql \"$DATABASE_URL\" -f supabase/seed_options.sql"
   },
   "dependencies": {
     "@supabase/supabase-js": "2.110.6",
