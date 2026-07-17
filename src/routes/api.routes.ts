@@ -17,6 +17,7 @@ const json = <T>(schema: z.ZodType<T>, value: unknown): T => { const parsed = sc
 const tokenSelect = `select t.*, s.name as service_name, s.average_duration, c.name as counter_name, greatest(coalesce(t.queue_position, 1) - 1, 0)::int as "peopleAhead" from public.tokens t join public.services s on s.id=t.service_id left join public.counters c on c.id=t.counter_id`;
 const staffInput = z.object({ name: z.string().trim().min(2).max(100), email: z.string().email(), password: z.string().min(8).max(100), counterId: id.optional(), serviceIds: z.array(id).min(1).optional() }).refine(input => Boolean(input.counterId) === Boolean(input.serviceIds), 'Select a counter and at least one allowed service together');
 const staffAssignmentInput = z.object({ counterId: id.nullable(), serviceIds: z.array(id).min(1).optional() }).refine(input => Boolean(input.counterId) === Boolean(input.serviceIds), 'Select a counter and at least one allowed service together');
+const staffStatusInput = z.object({ isActive: z.boolean() });
 const serviceIds = z.array(id).min(1).refine(values => new Set(values).size === values.length, 'Service IDs must be unique');
 const counterServiceInput = z.object({ serviceIds });
 const categoryInput = z.object({ name: z.string().trim().min(2).max(100), status: z.enum(['active', 'inactive']).optional() });
@@ -152,6 +153,16 @@ router.patch('/admin/staff/:staffId/counter', requireAuth(['admin']), asyncRoute
     return assignStaffCounterServices(client, staffId, counterId, serviceIds);
   });
   ok(res, assignment, assignment ? 'Staff counter assigned' : 'Staff counter unassigned');
+}));
+router.patch('/admin/staff/:staffId/status', requireAuth(['admin']), asyncRoute(async (req, res) => {
+  const staffId = id.parse(req.params.staffId); const { isActive } = json(staffStatusInput, req.body);
+  const updated = await transaction(async client => {
+    const staff = await client.query<{ id: string; has_counter: boolean; assignment_operational: boolean }>(`select u.id,exists(select 1 from public.counters c where c.staff_id=u.id) as has_counter,exists(select 1 from public.counters c join public.branches b on b.id=c.branch_id join public.categories category on category.id=b.category_id where c.staff_id=u.id and c.status in ('active','busy') and b.status='open' and category.status='active') as assignment_operational from public.users u where u.id=$1 and u.role='staff' for update`, [staffId]);
+    if (!staff.rowCount) throw new ApiError(404, 'STAFF_NOT_FOUND', 'Staff user not found');
+    if (isActive && staff.rows[0].has_counter && !staff.rows[0].assignment_operational) throw new ApiError(409, 'STAFF_ASSIGNMENT_INACTIVE', 'Reopen the assigned category, branch, and counter before activating this staff member');
+    return (await client.query(`update public.users set is_active=$2 where id=$1 returning id,name,email,is_active`, [staffId, isActive])).rows[0];
+  });
+  ok(res, updated, isActive ? 'Staff account activated' : 'Staff account deactivated');
 }));
 
 // Customer sign-up and sign-in happen in the Android app through Supabase Google OAuth.
