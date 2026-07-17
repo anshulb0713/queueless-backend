@@ -98,3 +98,110 @@ where b.name in (
   'LearnHub Admissions — Mumbai', 'LearnHub Admissions — Pune'
 )
 on conflict do nothing;
+
+-- Expanded options for broader hierarchy and status testing.
+insert into public.categories (name, status)
+values
+  ('Travel', 'active'),
+  ('Legal Services', 'active'),
+  ('Utilities', 'active'),
+  ('Insurance', 'active'),
+  ('Automotive', 'active')
+on conflict (name) do update set status = excluded.status;
+
+with seed_branches(category_name, name, address, status) as (
+  values
+    ('Travel', 'TravelDesk — Mumbai Airport', 'Terminal 2, Mumbai Airport', 'open'::public.branch_status),
+    ('Travel', 'TravelDesk — Pune Station', 'Pune Railway Station, Pune', 'open'::public.branch_status),
+    ('Legal Services', 'LegalAid — Fort', 'Fort, Mumbai', 'open'::public.branch_status),
+    ('Legal Services', 'LegalAid — Pune Camp', 'Camp, Pune', 'open'::public.branch_status),
+    ('Utilities', 'PowerConnect — Andheri', 'Andheri West, Mumbai', 'open'::public.branch_status),
+    ('Utilities', 'PowerConnect — Kalyan', 'Kalyan West, Thane', 'open'::public.branch_status),
+    ('Insurance', 'SecureLife — BKC', 'Bandra Kurla Complex, Mumbai', 'open'::public.branch_status),
+    ('Insurance', 'SecureLife — Viman Nagar', 'Viman Nagar, Pune', 'open'::public.branch_status),
+    ('Automotive', 'AutoHub — Borivali', 'Borivali East, Mumbai', 'open'::public.branch_status),
+    ('Automotive', 'AutoHub — Wakad', 'Wakad, Pune', 'closed'::public.branch_status)
+)
+insert into public.branches (category_id, name, address, status)
+select c.id, sb.name, sb.address, sb.status
+from seed_branches sb
+join public.categories c on c.name = sb.category_name
+where not exists (select 1 from public.branches b where b.name = sb.name);
+
+with seed_services(branch_name, name, prefix, average_duration) as (
+  values
+    ('TravelDesk — Mumbai Airport', 'Ticket Booking', 'TMA', 8),
+    ('TravelDesk — Mumbai Airport', 'Visa Assistance', 'TMV', 16),
+    ('TravelDesk — Mumbai Airport', 'Itinerary Changes', 'TMI', 10),
+    ('TravelDesk — Mumbai Airport', 'Baggage Support', 'TMB', 7),
+    ('TravelDesk — Pune Station', 'Ticket Booking', 'TPA', 8),
+    ('TravelDesk — Pune Station', 'Visa Assistance', 'TPV', 16),
+    ('TravelDesk — Pune Station', 'Itinerary Changes', 'TPI', 10),
+    ('TravelDesk — Pune Station', 'Baggage Support', 'TPB', 7),
+    ('LegalAid — Fort', 'Legal Consultation', 'LFC', 20),
+    ('LegalAid — Fort', 'Document Notary', 'LFN', 12),
+    ('LegalAid — Fort', 'Case Filing', 'LFF', 18),
+    ('LegalAid — Fort', 'Certificate Attestation', 'LFA', 10),
+    ('LegalAid — Pune Camp', 'Legal Consultation', 'LPC', 20),
+    ('LegalAid — Pune Camp', 'Document Notary', 'LPN', 12),
+    ('LegalAid — Pune Camp', 'Case Filing', 'LPF', 18),
+    ('LegalAid — Pune Camp', 'Certificate Attestation', 'LPA', 10),
+    ('PowerConnect — Andheri', 'Electricity Billing', 'PEB', 8),
+    ('PowerConnect — Andheri', 'Water Services', 'PEW', 10),
+    ('PowerConnect — Andheri', 'Gas Connection', 'PEG', 14),
+    ('PowerConnect — Andheri', 'Complaint Desk', 'PEC', 12),
+    ('PowerConnect — Kalyan', 'Electricity Billing', 'PKB', 8),
+    ('PowerConnect — Kalyan', 'Water Services', 'PKW', 10),
+    ('PowerConnect — Kalyan', 'Gas Connection', 'PKG', 14),
+    ('PowerConnect — Kalyan', 'Complaint Desk', 'PKC', 12),
+    ('SecureLife — BKC', 'Policy Renewal', 'SBR', 10),
+    ('SecureLife — BKC', 'Claims Support', 'SBC', 18),
+    ('SecureLife — BKC', 'New Policy', 'SBN', 15),
+    ('SecureLife — BKC', 'Document Upload', 'SBD', 7),
+    ('SecureLife — Viman Nagar', 'Policy Renewal', 'SVR', 10),
+    ('SecureLife — Viman Nagar', 'Claims Support', 'SVC', 18),
+    ('SecureLife — Viman Nagar', 'New Policy', 'SVN', 15),
+    ('SecureLife — Viman Nagar', 'Document Upload', 'SVD', 7),
+    ('AutoHub — Borivali', 'Vehicle Service', 'ABV', 20),
+    ('AutoHub — Borivali', 'Test Drive', 'ABT', 12),
+    ('AutoHub — Borivali', 'Parts Collection', 'ABP', 8),
+    ('AutoHub — Borivali', 'Insurance Desk', 'ABI', 11),
+    ('AutoHub — Wakad', 'Vehicle Service', 'AWV', 20),
+    ('AutoHub — Wakad', 'Test Drive', 'AWT', 12),
+    ('AutoHub — Wakad', 'Parts Collection', 'AWP', 8),
+    ('AutoHub — Wakad', 'Insurance Desk', 'AWI', 11)
+)
+insert into public.services (branch_id, name, prefix, average_duration)
+select b.id, ss.name, ss.prefix, ss.average_duration
+from seed_services ss
+join public.branches b on b.name = ss.branch_name
+on conflict (branch_id, name) do nothing;
+
+with seed_counter_branches(branch_name) as (
+  values
+    ('TravelDesk — Mumbai Airport'), ('TravelDesk — Pune Station'),
+    ('LegalAid — Fort'), ('LegalAid — Pune Camp'),
+    ('PowerConnect — Andheri'), ('PowerConnect — Kalyan'),
+    ('SecureLife — BKC'), ('SecureLife — Viman Nagar'),
+    ('AutoHub — Borivali'), ('AutoHub — Wakad')
+)
+insert into public.counters (branch_id, name, status)
+select b.id, v.name, case when v.name = 'Counter 4' then 'paused'::public.counter_status else 'active'::public.counter_status end
+from seed_counter_branches sb
+join public.branches b on b.name = sb.branch_name
+cross join (values ('Counter 1'), ('Counter 2'), ('Counter 3'), ('Counter 4')) as v(name)
+on conflict (branch_id, name) do nothing;
+
+insert into public.counter_services (counter_id, service_id)
+select c.id, s.id
+from public.counters c
+join public.branches b on b.id = c.branch_id
+join public.services s on s.branch_id = b.id and s.status = 'active'
+where b.name in (
+  'TravelDesk — Mumbai Airport', 'TravelDesk — Pune Station',
+  'LegalAid — Fort', 'LegalAid — Pune Camp',
+  'PowerConnect — Andheri', 'PowerConnect — Kalyan',
+  'SecureLife — BKC', 'SecureLife — Viman Nagar',
+  'AutoHub — Borivali', 'AutoHub — Wakad'
+)
+on conflict do nothing;
