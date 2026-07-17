@@ -130,8 +130,9 @@ router.get('/staff/assignment', requireAuth(['staff']), asyncRoute(async (req, r
   ok(res, { branch: { id: assignment.branch_id, name: assignment.branch_name, status: assignment.branch_status }, counter: { id: assignment.counter_id, name: assignment.counter_name, status: assignment.counter_status, current_token: assignment.current_token, service_ids: assignment.services.map(service => service.id) }, services: assignment.services }, 'Staff assignment loaded');
 }));
 
-router.get('/admin/staff', requireAuth(['admin']), asyncRoute(async (_req, res) => {
-  const result = await query(`select u.id,u.name,u.email,u.is_active,u.created_at,c.id as counter_id,c.name as counter_name,c.branch_id,coalesce(json_agg(json_build_object('id',s.id,'name',s.name)) filter(where s.id is not null),'[]'::json) as services from public.users u left join public.counters c on c.staff_id=u.id left join public.staff_counter_services scs on scs.staff_id=u.id and scs.counter_id=c.id left join public.services s on s.id=scs.service_id where u.role='staff' group by u.id,c.id order by u.name`);
+router.get('/admin/staff', requireAuth(['admin']), asyncRoute(async (req, res) => {
+  const selectedBranchId = req.query.branchId === undefined ? null : id.parse(req.query.branchId);
+  const result = await query(`select u.id,u.name,u.email,u.is_active,u.created_at,c.id as counter_id,c.name as counter_name,c.branch_id,coalesce(json_agg(json_build_object('id',s.id,'name',s.name)) filter(where s.id is not null),'[]'::json) as services from public.users u left join public.counters c on c.staff_id=u.id left join public.staff_counter_services scs on scs.staff_id=u.id and scs.counter_id=c.id left join public.services s on s.id=scs.service_id where u.role='staff' and ($1::uuid is null or c.branch_id=$1) group by u.id,c.id order by u.name`, [selectedBranchId]);
   ok(res, result.rows);
 }));
 router.post('/admin/staff', requireAuth(['admin']), asyncRoute(async (req, res) => {
