@@ -14,13 +14,16 @@ const tokenInput = z.object({ branchId: id, serviceId: id, fcmToken: fcmToken.nu
 const callInput = z.object({ serviceId: id, counterId: id });
 const counterInput = z.object({ counterId: id });
 const json = <T>(schema: z.ZodType<T>, value: unknown): T => { const parsed = schema.safeParse(value); if (!parsed.success) throw new ApiError(400, 'VALIDATION_ERROR', parsed.error.issues.map(x => x.message).join(', ')); return parsed.data; };
-const tokenSelect = `select t.*, s.name as service_name, s.average_duration, c.name as counter_name from public.tokens t join public.services s on s.id=t.service_id left join public.counters c on c.id=t.counter_id`;
+const tokenSelect = `select t.*, s.name as service_name, s.average_duration, c.name as counter_name, greatest(coalesce(t.queue_position, 1) - 1, 0)::int as "peopleAhead" from public.tokens t join public.services s on s.id=t.service_id left join public.counters c on c.id=t.counter_id`;
 const staffInput = z.object({ name: z.string().trim().min(2).max(100), email: z.string().email(), password: z.string().min(8).max(100), counterId: id.optional(), serviceIds: z.array(id).min(1).optional() }).refine(input => Boolean(input.counterId) === Boolean(input.serviceIds), 'Select a counter and at least one allowed service together');
 const staffAssignmentInput = z.object({ counterId: id.nullable(), serviceIds: z.array(id).min(1).optional() }).refine(input => Boolean(input.counterId) === Boolean(input.serviceIds), 'Select a counter and at least one allowed service together');
 const serviceIds = z.array(id).min(1).refine(values => new Set(values).size === values.length, 'Service IDs must be unique');
 const counterServiceInput = z.object({ serviceIds });
-const branchInput = z.object({ name: z.string().trim().min(2).max(100), address: z.string().trim().min(2).max(300) });
+const categoryInput = z.object({ name: z.string().trim().min(2).max(100), status: z.enum(['active', 'inactive']).optional() });
+const categoryUpdateInput = categoryInput.partial().refine(value => Object.keys(value).length > 0);
+const branchInput = z.object({ name: z.string().trim().min(2).max(100), address: z.string().trim().min(2).max(300), categoryId: id });
 const branchUpdateInput = branchInput.partial().extend({ status: z.enum(['open', 'closed']).optional() }).refine(value => Object.keys(value).length > 0);
+const activeCustomerTokenStatuses = ['waiting', 'called', 'serving', 'skipped'] as const;
 const assertStaff = async (staffId: string | null | undefined) => { if (!staffId) return; const result = await query(`select id from public.users where id=$1 and role='staff'`, [staffId]); if (!result.rowCount) throw new ApiError(400, 'STAFF_NOT_FOUND', 'Staff user not found'); };
 const assertStaffBranchAccess = async (user: { id: string; role: string }, branchId: string) => { if (user.role === 'admin') return; const result = await query(`select 1 from public.counters where branch_id=$1 and staff_id=$2`, [branchId, user.id]); if (!result.rowCount) throw new ApiError(403, 'BRANCH_NOT_ASSIGNED', 'You can only access your assigned branch'); };
 const assertNoTokens = async (client: { query: typeof query }, column: 'branch_id' | 'service_id' | 'counter_id', resourceId: string, resource: string, activeOnly = false) => {
@@ -49,6 +52,50 @@ const assignStaffCounterServices = async (client: { query: typeof query }, staff
 
 export const router = Router();
 router.get('/health', (_req, res) => ok(res, { timestamp: new Date().toISOString() }, 'QueueLess API is running'));
+
+router.get('/categories', asyncRoute(async (_req, res) => {
+  const result = await query(`select c.id,c.name,c.status,count(b.id)::int as "branchCount" from public.categories c left join public.branches b on b.category_id=c.id where c.status='active' group by c.id order by c.name`);
+  ok(res, result.rows);
+}));
+router.get('/admin/categories', requireAuth(['admin']), asyncRoute(async (_req, res) => {
+  const result = await query(`select c.id,c.name,c.status,c.created_at,count(b.id)::int as "branchCount" from public.categories c left join public.branches b on b.category_id=c.id group by c.id order by c.name`);
+  ok(res, result.rows);
+}));
+router.post('/admin/categories', requireAuth(['admin']), asyncRoute(async (req, res) => {
+  const input = json(categoryInput, req.body);
+  const existing = await query(`select 1 from public.categories where lower(name)=lower($1)`, [input.name]);
+  if (existing.rowCount) throw new ApiError(409, 'CATEGORY_NAME_EXISTS', 'A category with this name already exists');
+  const created = await query(`insert into public.categories(name,status) values($1,$2) returning *`, [input.name, input.status ?? 'active']);
+  ok(res, created.rows[0], 'Category created', 201);
+}));
+router.put('/admin/categories/:categoryId', requireAuth(['admin']), asyncRoute(async (req, res) => {
+  const categoryId = id.parse(req.params.categoryId); const input = json(categoryUpdateInput, req.body);
+  const updated = await transaction(async client => {
+    const category = await client.query<{ id: string; status: string }>(`select id,status from public.categories where id=$1 for update`, [categoryId]);
+    if (!category.rowCount) throw new ApiError(404, 'CATEGORY_NOT_FOUND', 'Category not found');
+    if (input.name) {
+      const duplicate = await client.query(`select 1 from public.categories where lower(name)=lower($1) and id<>$2`, [input.name, categoryId]);
+      if (duplicate.rowCount) throw new ApiError(409, 'CATEGORY_NAME_EXISTS', 'A category with this name already exists');
+    }
+    if (input.status === 'inactive' && category.rows[0].status !== 'inactive') {
+      const openBranches = await client.query(`select 1 from public.branches where category_id=$1 and status='open' limit 1`, [categoryId]);
+      if (openBranches.rowCount) throw new ApiError(409, 'CATEGORY_HAS_OPEN_BRANCHES', 'Close or move the category branches before turning this category off');
+    }
+    return (await client.query(`update public.categories set name=coalesce($2,name),status=coalesce($3,status) where id=$1 returning *`, [categoryId, input.name ?? null, input.status ?? null])).rows[0];
+  });
+  ok(res, updated, 'Category updated');
+}));
+router.delete('/admin/categories/:categoryId', requireAuth(['admin']), asyncRoute(async (req, res) => {
+  const categoryId = id.parse(req.params.categoryId);
+  await transaction(async client => {
+    const category = await client.query(`select id from public.categories where id=$1 for update`, [categoryId]);
+    if (!category.rowCount) throw new ApiError(404, 'CATEGORY_NOT_FOUND', 'Category not found');
+    const branches = await client.query(`select 1 from public.branches where category_id=$1 limit 1`, [categoryId]);
+    if (branches.rowCount) throw new ApiError(409, 'CATEGORY_HAS_BRANCHES', 'Move or delete the category branches before deleting this category');
+    await client.query(`delete from public.categories where id=$1`, [categoryId]);
+  });
+  ok(res, null, 'Category deleted');
+}));
 
 router.post('/auth/login', asyncRoute(async (req, res) => {
   const { email, password } = json(z.object({ email: z.string().email(), password: z.string().min(1) }), req.body);
@@ -132,13 +179,14 @@ router.post('/auth/customer/session', asyncRoute(async (req, res) => {
   ok(res, profile.rows[0], 'Google customer session verified');
 }));
 
-router.get('/branches', asyncRoute(async (_req, res) => {
-  const result = await query(`select b.*, count(t.id) filter (where t.status='waiting')::int as "waitingCount", coalesce(sum(t.estimated_wait_time) filter (where t.status='waiting'),0)::int as "estimatedWaitTime" from public.branches b left join public.tokens t on t.branch_id=b.id group by b.id order by b.name`);
+router.get('/branches', asyncRoute(async (req, res) => {
+  const categoryId = req.query.categoryId ? id.parse(req.query.categoryId) : undefined;
+  const result = await query(`select b.*,c.name as category_name,c.status as category_status,count(t.id) filter (where t.status='waiting')::int as "waitingCount",coalesce(sum(t.estimated_wait_time) filter (where t.status='waiting'),0)::int as "estimatedWaitTime" from public.branches b join public.categories c on c.id=b.category_id left join public.tokens t on t.branch_id=b.id where ($1::uuid is null or b.category_id=$1) group by b.id,c.id order by c.name,b.name`, [categoryId ?? null]);
   ok(res, result.rows);
 }));
-router.post('/branches', requireAuth(['admin']), asyncRoute(async (req, res) => { const input = json(branchInput, req.body); const created = await query(`insert into public.branches(name,address) values($1,$2) returning *`, [input.name, input.address]); ok(res, created.rows[0], 'Branch created', 201); }));
-router.get('/branches/:branchId', asyncRoute(async (req, res) => { const result = await query('select * from public.branches where id=$1', [id.parse(req.params.branchId)]); if (!result.rowCount) throw new ApiError(404, 'BRANCH_NOT_FOUND', 'Branch not found'); ok(res, result.rows[0]); }));
-router.put('/branches/:branchId', requireAuth(['admin']), asyncRoute(async (req, res) => { const branchId = id.parse(req.params.branchId); const input = json(branchUpdateInput, req.body); const updated = await transaction(async client => { const current = await client.query<{ id: string; status: string }>(`select id,status from public.branches where id=$1 for update`, [branchId]); if (!current.rowCount) throw new ApiError(404, 'BRANCH_NOT_FOUND', 'Branch not found'); if (input.status === 'closed' && current.rows[0].status !== 'closed') await assertNoTokens(client, 'branch_id', branchId, 'branch', true); return (await client.query(`update public.branches set name=coalesce($2,name),address=coalesce($3,address),status=coalesce($4,status) where id=$1 returning *`, [branchId, input.name ?? null, input.address ?? null, input.status ?? null])).rows[0]; }); ok(res, updated, 'Branch updated'); }));
+router.post('/branches', requireAuth(['admin']), asyncRoute(async (req, res) => { const input = json(branchInput, req.body); const created = await transaction(async client => { const category = await client.query(`select id from public.categories where id=$1 and status='active'`, [input.categoryId]); if (!category.rowCount) throw new ApiError(409, 'CATEGORY_INACTIVE', 'Choose an active category for the branch'); return (await client.query(`insert into public.branches(name,address,category_id) values($1,$2,$3) returning *`, [input.name, input.address, input.categoryId])).rows[0]; }); ok(res, created, 'Branch created', 201); }));
+router.get('/branches/:branchId', asyncRoute(async (req, res) => { const result = await query(`select b.*,c.name as category_name,c.status as category_status from public.branches b join public.categories c on c.id=b.category_id where b.id=$1`, [id.parse(req.params.branchId)]); if (!result.rowCount) throw new ApiError(404, 'BRANCH_NOT_FOUND', 'Branch not found'); ok(res, result.rows[0]); }));
+router.put('/branches/:branchId', requireAuth(['admin']), asyncRoute(async (req, res) => { const branchId = id.parse(req.params.branchId); const input = json(branchUpdateInput, req.body); const updated = await transaction(async client => { const current = await client.query<{ id: string; status: string }>(`select id,status from public.branches where id=$1 for update`, [branchId]); if (!current.rowCount) throw new ApiError(404, 'BRANCH_NOT_FOUND', 'Branch not found'); if (input.status === 'closed' && current.rows[0].status !== 'closed') await assertNoTokens(client, 'branch_id', branchId, 'branch', true); if (input.categoryId) { const category = await client.query(`select id from public.categories where id=$1 and status='active'`, [input.categoryId]); if (!category.rowCount) throw new ApiError(409, 'CATEGORY_INACTIVE', 'Choose an active category for the branch'); } return (await client.query(`update public.branches set name=coalesce($2,name),address=coalesce($3,address),category_id=coalesce($4,category_id),status=coalesce($5,status) where id=$1 returning *`, [branchId, input.name ?? null, input.address ?? null, input.categoryId ?? null, input.status ?? null])).rows[0]; }); ok(res, updated, 'Branch updated'); }));
 router.delete('/branches/:branchId', requireAuth(['admin']), asyncRoute(async (req, res) => { const branchId = id.parse(req.params.branchId); await transaction(async client => { const branch = await client.query(`select id from public.branches where id=$1 for update`, [branchId]); if (!branch.rowCount) throw new ApiError(404, 'BRANCH_NOT_FOUND', 'Branch not found'); await assertNoTokens(client, 'branch_id', branchId, 'branch'); await client.query(`delete from public.branches where id=$1`, [branchId]); }); ok(res, null, 'Branch deleted'); }));
 router.get('/branches/:branchId/services', asyncRoute(async (req, res) => { const result = await query(`select s.*, count(t.id) filter (where t.status='waiting')::int as "waitingCount" from public.services s left join public.tokens t on t.service_id=s.id where s.branch_id=$1 group by s.id order by s.name`, [id.parse(req.params.branchId)]); ok(res, result.rows); }));
 router.post('/services', requireAuth(['admin']), asyncRoute(async (req, res) => { const input = json(z.object({ branchId: id, name: z.string().trim().min(2).max(100), prefix: z.string().trim().min(1).max(8), averageDuration: z.number().int().min(1).max(240) }), req.body); const created = await transaction(async client => { const branch = await client.query(`select id from public.branches where id=$1 and status='open'`, [input.branchId]); if (!branch.rowCount) throw new ApiError(409, 'BRANCH_CLOSED', 'Services can only be added to an open branch'); return (await client.query('insert into public.services(branch_id,name,prefix,average_duration) values($1,$2,$3,$4) returning *', [input.branchId, input.name, input.prefix.toUpperCase(), input.averageDuration])).rows[0]; }); ok(res, created, 'Service created', 201); }));
@@ -149,6 +197,10 @@ router.post('/tokens', requireCustomerAuth, asyncRoute(async (req, res) => {
   const input = json(tokenInput, req.body);
   const customer = req.customer!;
   const token = await transaction(async client => {
+    // Serialise token creation per customer so two simultaneous join requests cannot bypass the active-token check.
+    await client.query(`select id from public.users where id=$1 for update`, [customer.id]);
+    const active = await client.query<{ token_number: string }>(`select token_number from public.tokens where customer_id=$1 and branch_id=$2 and status=any($3::public.token_status[]) order by created_at desc limit 1`, [customer.id, input.branchId, activeCustomerTokenStatuses]);
+    if (active.rowCount) throw new ApiError(409, 'ACTIVE_TOKEN_EXISTS', `Resolve active token ${active.rows[0].token_number} before joining another queue at this branch`);
     if (input.fcmToken !== undefined) await client.query(`update public.users set fcm_token=$2, fcm_token_updated_at=now() where id=$1`, [customer.id, input.fcmToken]);
     const service = await client.query<{ id: string; prefix: string; average_duration: number; status: string; branch_status: string }>(`select s.id,s.prefix,s.average_duration,s.status,b.status as branch_status from public.services s join public.branches b on b.id=s.branch_id where s.id=$1 and s.branch_id=$2 for update`, [input.serviceId, input.branchId]);
     const row = service.rows[0]; if (!row) throw new ApiError(404, 'SERVICE_NOT_FOUND', 'Service does not belong to this branch'); if (row.branch_status !== 'open') throw new ApiError(409, 'BRANCH_CLOSED', 'Branch is closed'); if (row.status !== 'active') throw new ApiError(409, 'SERVICE_INACTIVE', 'Service is inactive');
@@ -160,8 +212,14 @@ router.post('/tokens', requireCustomerAuth, asyncRoute(async (req, res) => {
   await notifyThreeAhead(input.serviceId);
   ok(res, token, 'Token created successfully', 201);
 }));
+router.get('/tokens/history', requireCustomerAuth, asyncRoute(async (req, res) => {
+  const branchId = req.query.branchId ? id.parse(req.query.branchId) : undefined;
+  const limit = req.query.limit ? z.coerce.number().int().min(1).max(100).parse(req.query.limit) : 50;
+  const result = await query(`${tokenSelect} where t.customer_id=$1 and ($2::uuid is null or t.branch_id=$2) order by t.created_at desc,t.id desc limit $3`, [req.customer!.id, branchId ?? null, limit]);
+  ok(res, result.rows);
+}));
 router.get('/tokens/:tokenId', requireCustomerAuth, asyncRoute(async (req, res) => { const result = await query(`${tokenSelect} where t.id=$1 and t.customer_id=$2`, [id.parse(req.params.tokenId), req.customer!.id]); if (!result.rowCount) throw new ApiError(404, 'TOKEN_NOT_FOUND', 'Token not found'); ok(res, result.rows[0]); }));
-router.get('/tokens/:tokenId/status', requireCustomerAuth, asyncRoute(async (req, res) => { const result = await query('select id,token_number,status,queue_position,estimated_wait_time,counter_id,updated_at from public.tokens where id=$1 and customer_id=$2', [id.parse(req.params.tokenId), req.customer!.id]); if (!result.rowCount) throw new ApiError(404, 'TOKEN_NOT_FOUND', 'Token not found'); ok(res, result.rows[0]); }));
+router.get('/tokens/:tokenId/status', requireCustomerAuth, asyncRoute(async (req, res) => { const result = await query(`select id,token_number,status,queue_position,greatest(coalesce(queue_position,1)-1,0)::int as "peopleAhead",estimated_wait_time,counter_id,updated_at from public.tokens where id=$1 and customer_id=$2`, [id.parse(req.params.tokenId), req.customer!.id]); if (!result.rowCount) throw new ApiError(404, 'TOKEN_NOT_FOUND', 'Token not found'); ok(res, result.rows[0]); }));
 router.put('/customers/notification-token', requireCustomerAuth, asyncRoute(async (req, res) => { const input = json(z.object({ fcmToken: fcmToken.nullable() }), req.body); await query(`update public.users set fcm_token=$2, fcm_token_updated_at=now() where id=$1`, [req.customer!.id, input.fcmToken]); ok(res, null, input.fcmToken ? 'Notification token updated' : 'Notification token cleared'); }));
 
 router.get('/queues/:branchId', requireAuth(), asyncRoute(async (req, res) => { const branchId = id.parse(req.params.branchId); await assertStaffBranchAccess(req.user!, branchId); const serviceId = req.query.serviceId ? id.parse(req.query.serviceId) : undefined; const status = req.query.status ? z.enum(['waiting', 'called', 'serving', 'skipped', 'completed', 'cancelled']).parse(req.query.status) : undefined; const result = await query(`${tokenSelect} where t.branch_id=$1 and ($2::uuid is null or t.service_id=$2) and ($3::public.token_status is null or t.status=$3) and ($4::public.user_role='admin' or exists(select 1 from public.counters sc join public.staff_counter_services scs on scs.counter_id=sc.id where sc.staff_id=$5 and sc.branch_id=t.branch_id and scs.staff_id=$5 and scs.service_id=t.service_id)) and ($4::public.user_role='admin' or t.status='waiting' or t.counter_id in(select id from public.counters where staff_id=$5)) order by case when t.status='waiting' then 0 else 1 end,t.queue_position nulls last,t.created_at`, [branchId, serviceId ?? null, status ?? null, req.user!.role, req.user!.id]); ok(res, result.rows); }));

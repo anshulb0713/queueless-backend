@@ -49,14 +49,16 @@ The test page proxies `/api` to the local QueueLess backend. It displays the Que
 
 | Step | When to call | API | Authentication | What to use from the response |
 | --- | --- | --- | --- | --- |
-| 1 | App opens or the branch picker is shown | `GET /branches` | None | Branch `id`, name, status, waiting count, and estimated wait time. Show only `open` branches as joinable. |
-| 2 | A customer selects a branch | `GET /branches/{branchId}/services` | None | Service `id`, prefix, status, duration, and waiting count. Show only `active` services as joinable. |
-| 3 | Immediately after Google OAuth succeeds, and before joining a queue | `POST /auth/customer/session` | Google token | Creates or updates the QueueLess customer profile from the verified Google identity. No request body is required. This must succeed before creating a token. |
-| 4 | Customer presses **Join queue** | `POST /tokens` | Google token | Send selected `branchId`, `serviceId`, and the current FCM token when available. Persist returned token `id` locally. |
-| 5 | Token/tracking screen opens or app returns to foreground | `GET /tokens/{tokenId}` | Google token | Full token details including number, queue position, wait estimate, service, and counter. |
-| 6 | While the token screen is visible | `GET /tokens/{tokenId}/status` every 5 seconds | Google token | Lightweight polling endpoint. Update the token status, queue position, estimate, and counter without reloading the entire screen. |
-| 7 | FCM token changes or permission is removed | `PUT /customers/notification-token` | Google token | Send `{ "fcmToken": "..." }` to save, or `{ "fcmToken": null }` to clear it. |
-| 8 | Customer cancels before service is completed | `PATCH /tokens/{tokenId}/cancel` | Google token | Remove the active token from the client UI after a successful response. |
+| 1 | App opens | `GET /categories` | None | Active categories such as Bank or Hospital. Render an **All** option locally; it is an aggregate filter, not a category record. |
+| 2 | A category is selected | `GET /branches?categoryId={categoryId}` | None | Branch `id`, category, name, status, waiting count, and estimated wait time. Calling `GET /branches` without `categoryId` is the **All** filter. Show only `open` branches as joinable. |
+| 3 | A customer selects a branch | `GET /branches/{branchId}/services` | None | Service `id`, prefix, status, duration, and waiting count. Show only `active` services as joinable. |
+| 4 | Immediately after Google OAuth succeeds, and before joining a queue | `POST /auth/customer/session` | Google token | Creates or updates the QueueLess customer profile from the verified Google identity. No request body is required. This must succeed before creating a token. |
+| 5 | Customer presses **Join queue** | `POST /tokens` | Google token | Send selected `branchId`, `serviceId`, and the current FCM token when available. Persist returned token `id` locally. A customer cannot have two unresolved tokens in the same branch. |
+| 6 | Token/tracking screen opens or app returns to foreground | `GET /tokens/{tokenId}` | Google token | Full token details including number, queue position, `peopleAhead`, wait estimate, service, and counter. |
+| 7 | While the token screen is visible | `GET /tokens/{tokenId}/status` every 5 seconds | Google token | Lightweight polling endpoint. Update status, `peopleAhead`, queue position, estimate, and counter without reloading the entire screen. |
+| 8 | Customer opens history | `GET /tokens/history` | Google token | Returns every token for that customer, including cancelled/completed tokens. Optional `branchId` and `limit` filters are available. |
+| 9 | FCM token changes or permission is removed | `PUT /customers/notification-token` | Google token | Send `{ "fcmToken": "..." }` to save, or `{ "fcmToken": null }` to clear it. |
+| 10 | Customer cancels before service is completed | `PATCH /tokens/{tokenId}/cancel` | Google token | The token is retained with status `cancelled`; remove it only from the active-token screen and show it in history. |
 
 ## Request examples
 
@@ -116,6 +118,8 @@ Authorization: Bearer <supabase_google_access_token>
 ```
 
 Stop polling when the token becomes `completed` or `cancelled`, and when the user signs out. Continue polling in the foreground for `waiting`, `called`, `serving`, and `skipped` tokens.
+
+`peopleAhead` is always present for the token detail and status APIs. It is `queue_position - 1` for a waiting token and `0` after the token is no longer waiting.
 
 ## Push-notification behavior
 
