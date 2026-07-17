@@ -199,8 +199,8 @@ router.post('/tokens', requireCustomerAuth, asyncRoute(async (req, res) => {
   const token = await transaction(async client => {
     // Serialise token creation per customer so two simultaneous join requests cannot bypass the active-token check.
     await client.query(`select id from public.users where id=$1 for update`, [customer.id]);
-    const active = await client.query<{ token_number: string }>(`select token_number from public.tokens where customer_id=$1 and branch_id=$2 and status=any($3::public.token_status[]) order by created_at desc limit 1`, [customer.id, input.branchId, activeCustomerTokenStatuses]);
-    if (active.rowCount) throw new ApiError(409, 'ACTIVE_TOKEN_EXISTS', `Resolve active token ${active.rows[0].token_number} before joining another queue at this branch`);
+    const active = await client.query<{ token_number: string }>(`select token_number from public.tokens where customer_id=$1 and service_id=$2 and status=any($3::public.token_status[]) order by created_at desc limit 1`, [customer.id, input.serviceId, activeCustomerTokenStatuses]);
+    if (active.rowCount) throw new ApiError(409, 'ACTIVE_TOKEN_EXISTS', `Resolve active token ${active.rows[0].token_number} before joining this service again`);
     if (input.fcmToken !== undefined) await client.query(`update public.users set fcm_token=$2, fcm_token_updated_at=now() where id=$1`, [customer.id, input.fcmToken]);
     const service = await client.query<{ id: string; prefix: string; average_duration: number; status: string; branch_status: string }>(`select s.id,s.prefix,s.average_duration,s.status,b.status as branch_status from public.services s join public.branches b on b.id=s.branch_id where s.id=$1 and s.branch_id=$2 for update`, [input.serviceId, input.branchId]);
     const row = service.rows[0]; if (!row) throw new ApiError(404, 'SERVICE_NOT_FOUND', 'Service does not belong to this branch'); if (row.branch_status !== 'open') throw new ApiError(409, 'BRANCH_CLOSED', 'Branch is closed'); if (row.status !== 'active') throw new ApiError(409, 'SERVICE_INACTIVE', 'Service is inactive');
